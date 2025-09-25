@@ -1,0 +1,309 @@
+<!--
+Breakout (30-brick win) - Vibe Coding Example
+- Simple HTML + JavaScript single-file game using <canvas>
+- Controls: Left / Right arrow keys
+- Rules: Each brick destroyed = +1 score. Destroy all 30 bricks to win.
+- If ball falls below paddle -> lose. Press Space or click Restart to play again.
+
+How to use:
+- Copy this file into Replit (new HTML/CSS/JS repl) or save as breakout.html and open in browser.
+- If you want me to walk through generating this step-by-step with an AI agent, I can show prompts for each stage.
+-->
+
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Breakout — Vibe Coding Example</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans",sans-serif;background:#111;color:#eee;display:flex;align-items:center;justify-content:center}
+    #gameCanvas{background:#0b1220;border:6px solid #1f2937;border-radius:8px;display:block}
+    .note{position:fixed;left:16px;bottom:12px;font-size:13px;color:#9aa4b2}
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="720" height="480"></canvas>
+  <div class="note">Controls: ← → arrows. Press <strong>Space</strong> to restart after game over.</div>
+
+  <script>
+  // --- Game config ---
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const PADDLE_WIDTH = 100;
+  const PADDLE_HEIGHT = 14;
+  const PADDLE_Y_OFFSET = 30; // distance from bottom
+
+  const BALL_RADIUS = 8;
+
+  const BRICK_ROWS = 5;
+  const BRICK_COLS = 6; // 5*6 = 30 bricks total
+  const BRICK_PADDING = 8;
+  const BRICK_OFFSET_TOP = 50;
+  const BRICK_OFFSET_LEFT = 40;
+  const BRICK_HEIGHT = 18;
+
+  // --- State ---
+  let paddleX;
+  let paddleSpeed = 8;
+  let leftPressed = false;
+  let rightPressed = false;
+
+  let ballX, ballY, ballDX, ballDY, ballSpeed;
+
+  let bricks = [];
+  let score = 0;
+  let totalBricks = BRICK_ROWS * BRICK_COLS;
+
+  let gameRunning = true;
+  let gameMessage = '';
+
+  // --- Initialize ---
+  function initBricks(){
+    bricks = [];
+    for(let r=0;r<BRICK_ROWS;r++){
+      bricks[r] = [];
+      for(let c=0;c<BRICK_COLS;c++){
+        bricks[r][c] = {status:1};
+      }
+    }
+  }
+
+  function resetBallAndPaddle(){
+    paddleX = (canvas.width - PADDLE_WIDTH) / 2;
+    ballX = canvas.width / 2;
+    ballY = canvas.height - PADDLE_Y_OFFSET - PADDLE_HEIGHT - BALL_RADIUS - 2;
+    ballSpeed = 4;
+    // start moving up-left
+    ballDX = (Math.random() < 0.5 ? -1 : 1) * (ballSpeed * 0.866); // some angle
+    ballDY = -ballSpeed * 0.5;
+  }
+
+  function restartGame(){
+    score = 0;
+    initBricks();
+    resetBallAndPaddle();
+    gameRunning = true;
+    gameMessage = '';
+    requestAnimationFrame(loop);
+  }
+
+  // --- Input ---
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'ArrowLeft') leftPressed = true;
+    if(e.key === 'ArrowRight') rightPressed = true;
+    if(e.code === 'Space'){
+      if(!gameRunning) restartGame();
+    }
+  });
+  document.addEventListener('keyup', (e)=>{
+    if(e.key === 'ArrowLeft') leftPressed = false;
+    if(e.key === 'ArrowRight') rightPressed = false;
+  });
+
+  // Optional: mouse movement to help testing
+  canvas.addEventListener('mousemove', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    // keep paddle centered on mouse x while staying in bounds
+    paddleX = Math.min(Math.max(x - PADDLE_WIDTH/2, 0), canvas.width - PADDLE_WIDTH);
+  });
+
+  // --- Collision detection ---
+  function detectBrickCollision(){
+    const brickWidth = (canvas.width - BRICK_OFFSET_LEFT*2 - (BRICK_COLS-1)*BRICK_PADDING) / BRICK_COLS;
+    for(let r=0;r<BRICK_ROWS;r++){
+      for(let c=0;c<BRICK_COLS;c++){
+        const b = bricks[r][c];
+        if(b.status === 1){
+          const bx = BRICK_OFFSET_LEFT + c*(brickWidth + BRICK_PADDING);
+          const by = BRICK_OFFSET_TOP + r*(BRICK_HEIGHT + BRICK_PADDING);
+
+          // simple AABB vs circle collision
+          const closestX = Math.max(bx, Math.min(ballX, bx+brickWidth));
+          const closestY = Math.max(by, Math.min(ballY, by+BRICK_HEIGHT));
+          const distX = ballX - closestX;
+          const distY = ballY - closestY;
+          const distSq = distX*distX + distY*distY;
+
+          if(distSq <= BALL_RADIUS*BALL_RADIUS){
+            // hit!
+            b.status = 0;
+            score += 1;
+
+            // reflect ball: invert vertical velocity; if hit on sides, invert horizontal
+            // simple heuristic: if ball center is above/below brick center, invert vertical
+            const brickCenterY = by + BRICK_HEIGHT/2;
+            if(ballY < brickCenterY) ballDY = -Math.abs(ballDY);
+            else ballDY = Math.abs(ballDY);
+
+            // small speed bump
+            ballDX *= 1.03;
+            ballDY *= 1.03;
+
+            // check win
+            if(score >= totalBricks){
+              gameRunning = false;
+              gameMessage = 'You win! 🎉 — Press Space to play again.';
+            }
+
+            return; // only handle one brick per frame for stability
+          }
+        }
+      }
+    }
+  }
+
+  function detectPaddleCollision(){
+    const paddleTop = canvas.height - PADDLE_Y_OFFSET - PADDLE_HEIGHT;
+    if(ballY + BALL_RADIUS >= paddleTop && ballY - BALL_RADIUS <= paddleTop + PADDLE_HEIGHT){
+      if(ballX > paddleX && ballX < paddleX + PADDLE_WIDTH){
+        // reflect and change angle based on where the ball hits the paddle
+        const hitPos = (ballX - (paddleX + PADDLE_WIDTH/2)) / (PADDLE_WIDTH/2); // -1 .. 1
+        const maxBounceAngle = Math.PI / 3; // 60 degrees
+        const angle = hitPos * maxBounceAngle;
+        const speed = Math.sqrt(ballDX*ballDX + ballDY*ballDY) || ballSpeed;
+        ballDX = speed * Math.sin(angle);
+        ballDY = -Math.abs(speed * Math.cos(angle));
+      }
+    }
+  }
+
+  // --- Draw ---
+  function drawBackground(){
+    // clear
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // subtle grid
+    ctx.fillStyle = '#071020';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+
+  function drawBricks(){
+    const brickWidth = (canvas.width - BRICK_OFFSET_LEFT*2 - (BRICK_COLS-1)*BRICK_PADDING) / BRICK_COLS;
+    for(let r=0;r<BRICK_ROWS;r++){
+      for(let c=0;c<BRICK_COLS;c++){
+        const b = bricks[r][c];
+        if(b.status === 1){
+          const bx = BRICK_OFFSET_LEFT + c*(brickWidth + BRICK_PADDING);
+          const by = BRICK_OFFSET_TOP + r*(BRICK_HEIGHT + BRICK_PADDING);
+          // simple color band per row
+          const hue = 200 - r*20;
+          ctx.fillStyle = `hsl(${hue} 80% 55%)`;
+          ctx.fillRect(bx, by, brickWidth, BRICK_HEIGHT);
+          // inner shine
+          ctx.fillStyle = 'rgba(255,255,255,0.06)';
+          ctx.fillRect(bx+4, by+2, brickWidth-8, BRICK_HEIGHT-4);
+        }
+      }
+    }
+  }
+
+  function drawPaddle(){
+    ctx.fillStyle = '#9fb0ff';
+    const y = canvas.height - PADDLE_Y_OFFSET - PADDLE_HEIGHT;
+    roundRect(ctx, paddleX, y, PADDLE_WIDTH, PADDLE_HEIGHT, 6, true, false);
+  }
+
+  function drawBall(){
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, BALL_RADIUS, 0, Math.PI*2);
+    ctx.fillStyle = '#ffd26b';
+    ctx.fill();
+    ctx.closePath();
+  }
+
+  function drawHUD(){
+    ctx.font = '16px system-ui, Arial';
+    ctx.fillStyle = '#cfe3ff';
+    ctx.fillText('Score: ' + score, 14, 24);
+    ctx.fillText(`Bricks: ${score}/${totalBricks}`, canvas.width - 140, 24);
+  }
+
+  function drawOverlay(){
+    if(!gameRunning){
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#fff';
+      ctx.font = '28px system-ui, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(gameMessage, canvas.width/2, canvas.height/2 - 10);
+      ctx.font = '14px system-ui, Arial';
+      ctx.fillText('Press Space to restart', canvas.width/2, canvas.height/2 + 20);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // --- Utilities ---
+  function roundRect(ctx, x, y, w, h, r, fill, stroke){
+    if (typeof stroke === 'undefined') stroke = true;
+    if (typeof r === 'undefined') r = 5;
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y,   x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x,   y+h, r);
+    ctx.arcTo(x,   y+h, x,   y,   r);
+    ctx.arcTo(x,   y,   x+w, y,   r);
+    ctx.closePath();
+    if(fill) ctx.fill();
+    if(stroke) ctx.stroke();
+  }
+
+  // --- Game loop ---
+  function loop(){
+    if(!gameRunning) {
+      drawBackground();
+      drawBricks();
+      drawPaddle();
+      drawBall();
+      drawHUD();
+      drawOverlay();
+      return;
+    }
+
+    // update paddle by keyboard input
+    if(leftPressed) paddleX -= paddleSpeed;
+    if(rightPressed) paddleX += paddleSpeed;
+    paddleX = Math.max(0, Math.min(canvas.width - PADDLE_WIDTH, paddleX));
+
+    // move ball
+    ballX += ballDX;
+    ballY += ballDY;
+
+    // wall collisions
+    if(ballX + BALL_RADIUS > canvas.width){ ballX = canvas.width - BALL_RADIUS; ballDX = -Math.abs(ballDX); }
+    if(ballX - BALL_RADIUS < 0){ ballX = BALL_RADIUS; ballDX = Math.abs(ballDX); }
+    if(ballY - BALL_RADIUS < 0){ ballY = BALL_RADIUS; ballDY = Math.abs(ballDY); }
+
+    // bottom (lose)
+    if(ballY - BALL_RADIUS > canvas.height){
+      gameRunning = false;
+      gameMessage = 'Game Over — Press Space to try again.';
+    }
+
+    detectBrickCollision();
+    detectPaddleCollision();
+
+    // draw
+    drawBackground();
+    drawBricks();
+    drawPaddle();
+    drawBall();
+    drawHUD();
+
+    requestAnimationFrame(loop);
+  }
+
+  // --- Start ---
+  initBricks();
+  resetBallAndPaddle();
+  requestAnimationFrame(loop);
+
+  // expose restart by clicking canvas
+  canvas.addEventListener('click', ()=>{
+    if(!gameRunning) restartGame();
+  });
+  </script>
+</body>
+</html>
